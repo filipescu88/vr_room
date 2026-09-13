@@ -67,9 +67,10 @@ AFRAME.registerComponent('swing-door',{
  angle(){return this.current;},
  remove(){this.el.removeEventListener('click',this.onClick);}
 });
-/* Grab: grip picks up an object of class .grabbable, grip again puts it on the floor.
-   The object stays in the scene and follows the hand — moving an entity with gltf-model
-   to another parent makes A-Frame drop its model. No physics: it is set down upright. */
+/* Grab: grip picks an object of class .grabbable up, releasing puts it down on the
+   surface under it (table top, sofa seat, floor). The object stays in the scene and
+   follows the hand — moving an entity with gltf-model to another parent makes A-Frame
+   drop its model. No physics: it is set down upright. */
 AFRAME.registerComponent('grab',{
  schema:{holdOffset:{type:'vec3',default:{x:0,y:-0.15,z:-0.2}}},
  init(){
@@ -104,6 +105,38 @@ AFRAME.registerComponent('grab',{
   el.setAttribute('position',x.toFixed(3)+' '+y.toFixed(3)+' '+z.toFixed(3));
   el.setAttribute('rotation','0 0 0');
  },
+ size(el){
+  const box=new THREE.Box3().setFromObject(el.object3D,true);
+  if(!isFinite(box.min.x))return {radius:.2,height:.3};
+  return {radius:Math.min(Math.max(box.max.x-box.min.x,box.max.z-box.min.z)/2,.32),
+          height:Math.max(box.max.y-box.min.y,.05)};
+ },
+ body(){
+  const el=document.querySelector('[player-body]');
+  return el?el.components['player-body']:null;
+ },
+ place(el,point){                               // blat, siedzisko, parapet albo podłoga
+  const collision=this.body();
+  if(!collision)return {x:point.x,y:0,z:point.z};
+  const size=this.size(el);
+  const target=this.spotAt(collision,point.x,point.z,point.y,size);
+  if(target)return target;
+  const head=document.querySelector('#head'),headWorld=new THREE.Vector3();
+  if(head)head.object3D.getWorldPosition(headWorld);
+  const dx=headWorld.x-point.x,dz=headWorld.z-point.z,len=Math.hypot(dx,dz)||1;
+  for(let i=1;i<=5;i++){                         // cofnij w stronę gracza, aż będzie wolne miejsce
+   const back=i*0.15;
+   const spot=this.spotAt(collision,point.x+dx/len*back,point.z+dz/len*back,point.y,size);
+   if(spot)return spot;
+  }
+  const under=collision.support(headWorld.x,headWorld.z,size.radius,headWorld.y-1.0);
+  const free=collision.free(headWorld.x,headWorld.z,under,size.height,size.radius);
+  return {x:headWorld.x,y:free?under:0,z:headWorld.z};    // nie wkładaj przedmiotu w ścianę
+ },
+ spotAt(collision,x,z,fromY,size){
+  const surface=collision.support(x,z,size.radius,fromY);
+  return collision.free(x,z,surface,size.height,size.radius)?{x,y:surface,z}:null;
+ },
  pick(){
   if(this.held)return;
   const el=this.target();
@@ -116,18 +149,10 @@ AFRAME.registerComponent('grab',{
   if(!this.held)return;
   const el=this.held,position=new THREE.Vector3();
   el.object3D.getWorldPosition(position);
-  const spot=this.spot(position);
+  const spot=this.place(el,position);
   this.held=null;delete el.heldBy;
-  this.moveTo(el,spot.x,0,spot.z);
-  this.el.emit('released',{object:el.id,x:spot.x,z:spot.z});
- },
- spot(point){                                   // nie odkładaj przedmiotu w ścianie ani w meblu
-  const body=document.querySelector('[player-body]');
-  const collision=body&&body.components['player-body'];
-  if(!collision||!collision.collides(point.x,point.z))return point;
-  const head=document.querySelector('#head'),headWorld=new THREE.Vector3();
-  if(head)head.object3D.getWorldPosition(headWorld);
-  return {x:headWorld.x,z:headWorld.z};
+  this.moveTo(el,spot.x,spot.y,spot.z);
+  this.el.emit('released',{object:el.id,x:spot.x,y:spot.y,z:spot.z});
  },
  remove(){
   this.el.removeEventListener('gripdown',this.onGripDown);
@@ -136,21 +161,32 @@ AFRAME.registerComponent('grab',{
 });
 /* Left thumbstick: smooth movement in the direction the head looks, with collision
    against furniture and walls. A-Frame reports y>0 as stick-down, so forward is -y.
-   Keyboard (W/A/S/D, arrows) drives the same movement for the desktop preview. */
+   Keyboard (W/A/S/D, arrows) drives the same movement for the desktop preview.
+   Eye height is calibrated once per VR session so the room floor matches the user's
+   floor; holding the stick clicked and pushing it up or down adjusts it and is saved. */
 AFRAME.registerComponent('player-body',{
- schema:{speed:{default:1.4},radius:{default:.26},bodyHeight:{default:1.7},footClearance:{default:.15},minObstacleSize:{default:.06},deadZone:{default:.15},invertForward:{default:false},sources:{default:'#model, #new-room'},dynamic:{default:'#door, #crate'}},
+ schema:{speed:{default:1.4},radius:{default:.26},bodyHeight:{default:1.7},footClearance:{default:.15},minObstacleSize:{default:.06},minSupport:{default:.25},deadZone:{default:.15},invertForward:{default:false},eyeHeight:{default:1.8},sources:{default:'#model, #new-room'},dynamic:{default:'#door, #crate'}},
  init(){
   this.obstacles=[];this.dyn=[];this.stick={x:0,y:0};this.keys={};
   this.forward=new THREE.Vector3();this.right=new THREE.Vector3();this.headWorld=new THREE.Vector3();
   this.rig=document.querySelector('#rig');this.head=document.querySelector('#head');
+  this.adjusting=false;this.calibrateAt=0;
+  const saved=Number(localStorage.getItem('vrEyeHeight'));
+  if(saved>0.8&&saved<2.6)this.data.eyeHeight=saved;
   this.onThumbstick=event=>{this.stick.x=event.detail.x||0;this.stick.y=event.detail.y||0;};
+  this.onThumbstickDown=()=>{this.adjusting=true;};
+  this.onThumbstickUp=()=>{this.adjusting=false;};
+  this.onEnterVR=()=>{this.calibrateAt=performance.now()+900;};   // poczekaj, aż pozycja z gogli się ustali
   this.onKeyDown=event=>{this.keys[event.code]=true;};
   this.onKeyUp=event=>{this.keys[event.code]=false;};
   this.onLoaded=()=>this.buildObstacles();
   this.sources=[...document.querySelectorAll(this.data.sources)];
   this.dynamic=[...document.querySelectorAll(this.data.dynamic)];
   this.el.addEventListener('thumbstickmoved',this.onThumbstick);
+  this.el.addEventListener('thumbstickdown',this.onThumbstickDown);
+  this.el.addEventListener('thumbstickup',this.onThumbstickUp);
   window.addEventListener('keydown',this.onKeyDown);window.addEventListener('keyup',this.onKeyUp);
+  if(this.el.sceneEl)this.el.sceneEl.addEventListener('enter-vr',this.onEnterVR);
   this.sources.forEach(el=>el.addEventListener('model-loaded',this.onLoaded));
   this.buildObstacles();
  },
@@ -172,7 +208,7 @@ AFRAME.registerComponent('player-body',{
     if(!isFinite(box.min.x)||!isFinite(box.max.x))return;
     if(box.max.y<=band.footClearance||box.min.y>=band.bodyHeight)return;             // podłoga, dywan, listwy, sufit
     if(box.max.x-box.min.x<band.minObstacleSize&&box.max.z-box.min.z<band.minObstacleSize)return;   // nogi, drobiazgi
-    list.push({minX:box.min.x,maxX:box.max.x,minZ:box.min.z,maxZ:box.max.z});
+    list.push({minX:box.min.x,maxX:box.max.x,minZ:box.min.z,maxZ:box.max.z,base:box.min.y,top:box.max.y});
    });
   });
   this.obstacles=list;
@@ -188,9 +224,34 @@ AFRAME.registerComponent('player-body',{
    box.setFromObject(entity.object3D,true);
    if(!isFinite(box.min.x)||!isFinite(box.max.x))return;
    if(box.max.y<=this.data.footClearance||box.min.y>=this.data.bodyHeight)return;
-   list.push({minX:box.min.x,maxX:box.max.x,minZ:box.min.z,maxZ:box.max.z});
+   list.push({minX:box.min.x,maxX:box.max.x,minZ:box.min.z,maxZ:box.max.z,base:box.min.y,top:box.max.y});
   });
   return list;
+ },
+ /* Wsparcie i miejsce dla odkładanych przedmiotów (grab.place). */
+ support(x,z,r,fromY){                           // najwyższa powierzchnia nie wyżej niż fromY
+  let best=0;
+  const limit=fromY+0.05;
+  for(let i=0;i<this.obstacles.length;i++){
+   const b=this.obstacles[i];
+   if(b.maxX<x-r||b.minX>x+r||b.maxZ<z-r||b.minZ>z+r)continue;
+   if(b.top<0.03||b.top>limit)continue;
+   if(Math.min(b.maxX-b.minX,b.maxZ-b.minZ)<this.data.minSupport)continue;   // filiżanka, książka, ekran to nie blat
+   if(b.top>best)best=b.top;
+  }
+  return best;
+ },
+ free(x,z,y,height,r){                           // czy przedmiot zmieści się na tej wysokości
+  const rr=r*0.75,top=y+Math.max(height,0.05);
+  for(let i=0;i<this.obstacles.length;i++){
+   const b=this.obstacles[i];
+   if(b.maxX<x-rr||b.minX>x+rr||b.maxZ<z-rr||b.minZ>z+rr)continue;
+   if(b.top-b.base<0.12)continue;                // drobiazgi: książka, filiżanka, blat — nie przeszkadzają
+   if(b.base>=top-0.01)continue;                 // mebel zaczyna się nad przedmiotem
+   if(b.top<=y+0.02)continue;                    // mebel kończy się pod przedmiotem — to podpora
+   return false;                                 // bryła przechodzi przez przedmiot
+  }
+  return true;
  },
  collides(x,z){
   const r=this.data.radius;
@@ -208,8 +269,29 @@ AFRAME.registerComponent('player-body',{
   }
   return false;
  },
+ eyeHeightNow(){                                 // wysokość oczu nad originem gogli przy rigu w y=0
+  const v=new THREE.Vector3();
+  this.head.object3D.getWorldPosition(v);
+  return v.y-this.rig.object3D.position.y;
+ },
+ calibrate(){
+  this.calibrateAt=0;
+  const eye=this.eyeHeightNow();
+  if(!(eye>0.4&&eye<2.4))return;                 // pozycja z gogli jeszcze nieustalona
+  const offset=this.data.eyeHeight-eye;
+  if(Math.abs(offset)<0.02)return;
+  this.rig.object3D.position.y+=offset;
+  this.el.emit('eye-height',{measured:+eye.toFixed(2),offset:+offset.toFixed(2)});
+ },
+ adjustHeight(delta){
+  if(Math.abs(this.stick.y)<0.35)return;
+  const change=-Math.sign(this.stick.y)*0.5*Math.min(delta/1000,.05);
+  this.data.eyeHeight=Math.min(2.6,Math.max(0.9,this.data.eyeHeight+change));
+  this.rig.object3D.position.y+=change;
+  localStorage.setItem('vrEyeHeight',this.data.eyeHeight.toFixed(2));
+ },
  input(){
-  let sideways=this.stick.x,forward=this.data.invertForward?this.stick.y:-this.stick.y;
+  let sideways=this.adjusting?0:this.stick.x,forward=this.adjusting?0:(this.data.invertForward?this.stick.y:-this.stick.y);
   if(Math.abs(sideways)<this.data.deadZone)sideways=0;
   if(Math.abs(forward)<this.data.deadZone)forward=0;
   if(this.keys.KeyD||this.keys.ArrowRight)sideways+=1;
@@ -219,6 +301,8 @@ AFRAME.registerComponent('player-body',{
   return {sideways,forward};
  },
  tick(time,delta){
+  if(this.calibrateAt&&performance.now()>=this.calibrateAt)this.calibrate();
+  if(this.adjusting)this.adjustHeight(delta);
   this.dyn=this.dynamicObstacles();
   if(!this.obstacles.length||!this.rig||!this.head)return;
   const input=this.input();
@@ -245,8 +329,11 @@ AFRAME.registerComponent('player-body',{
  },
  remove(){
   this.el.removeEventListener('thumbstickmoved',this.onThumbstick);
+  this.el.removeEventListener('thumbstickdown',this.onThumbstickDown);
+  this.el.removeEventListener('thumbstickup',this.onThumbstickUp);
   window.removeEventListener('keydown',this.onKeyDown);window.removeEventListener('keyup',this.onKeyUp);
   this.sources.forEach(el=>el.removeEventListener('model-loaded',this.onLoaded));
+  if(this.el.sceneEl)this.el.sceneEl.removeEventListener('enter-vr',this.onEnterVR);
  }
 });
 window.addEventListener('DOMContentLoaded',()=>{
