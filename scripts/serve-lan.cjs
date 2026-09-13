@@ -12,7 +12,8 @@ const assets = new Map([
  ['/pokoj.glb', ['pokoj.glb', 'model/gltf-binary']],
  ['/models/za-drzwiami.glb', ['models/za-drzwiami.glb', 'model/gltf-binary']],
  ['/models/drzwi.glb', ['models/drzwi.glb', 'model/gltf-binary']],
- ['/models/skrzynka.glb', ['models/skrzynka.glb', 'model/gltf-binary']]
+ ['/models/skrzynka.glb', ['models/skrzynka.glb', 'model/gltf-binary']],
+ ['/models/karabin.glb', ['models/karabin.glb', 'model/gltf-binary']]
 ]);
 const server = https.createServer({
  key: fs.readFileSync(path.join(root,'.local-vr/key.pem')),

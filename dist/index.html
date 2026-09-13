@@ -3,11 +3,12 @@
 <body>
 <div id="panel"><div class="eyebrow">KOMNATA / META QUEST 3</div><h1>Twój pokój.</h1><p>20 m² · skala 1:1</p><p id="status" role="status">Wczytywanie pokoju…</p><button id="enter" disabled>Wejdź do VR</button><div class="views" aria-label="Punkty widokowe"><button data-view="0">Wejście</button><button data-view="1">Okno</button><button data-view="2">Kanapa</button><button data-view="3">Za drzwiami</button></div><p class="help">W goglach: lewy drążek porusza w kierunku patrzenia, prawy obraca widok o 30°. Wskaż drzwi laserem i naciśnij spust, aby je otworzyć. Chwyt (grip) podnosi przedmiot, a puszczenie kładzie go na blacie, siedzisku albo podłodze. Wciśnięty lewy drążek z wychyleniem w górę lub w dół zmienia wysokość oczu (zapamiętywaną). Przez meble i ściany nie przejdziesz.<br><br>Na komputerze: W/A/S/D lub strzałki, aby się poruszać; przeciągnij myszą, aby się rozejrzeć, albo wybierz punkt widokowy.</p></div>
 <a-scene renderer="antialias: true; colorManagement: true" background="color: #a8bdc9" webxr="referenceSpaceType: local-floor" xr-mode-ui="enabled: false" loading-screen="enabled: false">
-<a-assets timeout="30000"><a-asset-item id="room" src="pokoj.glb"></a-asset-item><a-asset-item id="room2" src="models/za-drzwiami.glb"></a-asset-item><a-asset-item id="drzwi" src="models/drzwi.glb"></a-asset-item><a-asset-item id="skrzynka" src="models/skrzynka.glb"></a-asset-item></a-assets>
+<a-assets timeout="30000"><a-asset-item id="room" src="pokoj.glb"></a-asset-item><a-asset-item id="room2" src="models/za-drzwiami.glb"></a-asset-item><a-asset-item id="drzwi" src="models/drzwi.glb"></a-asset-item><a-asset-item id="skrzynka" src="models/skrzynka.glb"></a-asset-item><a-asset-item id="karabin" src="models/karabin.glb"></a-asset-item></a-assets>
 <a-entity id="model" gltf-model="#room" legacy-front-wall></a-entity>
 <a-entity id="new-room" gltf-model="#room2"></a-entity>
 <a-entity id="door" class="door" gltf-model="#drzwi" position="-2.16 0 2.08" swing-door></a-entity>
 <a-entity id="crate" class="grabbable" gltf-model="#skrzynka" position="-3 0 3.6"></a-entity>
+<a-entity id="carbine" class="grabbable" gltf-model="#karabin" position="0 0.49 -0.2" rotation="0 15 0"></a-entity>
 <a-entity light="type: hemisphere; color: #fff3db; groundColor: #737982; intensity: 2.0"></a-entity>
 <a-entity light="type: point; color: #ffeed0; intensity: 20; decay: 2; distance: 9" position="0 2.45 0"></a-entity>
 <a-entity light="type: point; color: #d0e8ff; intensity: 12; decay: 2; distance: 7" position="-2 1.8 0"></a-entity>
