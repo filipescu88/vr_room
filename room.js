@@ -1,5 +1,5 @@
-/* World positions in metres. Teleport uses the tracked head offset. */
-const viewpoints = [{x:0,z:1.05,yaw:0},{x:-1.5,z:0,yaw:-70},{x:.85,z:-.65,yaw:180}];
+/* World positions in metres. Viewpoints serve the desktop panel and the hosted view tool. */
+const viewpoints = [{x:0,z:1.05,yaw:0},{x:-1.5,z:0,yaw:-70},{x:.85,z:-.65,yaw:180},{x:-1.75,z:3.4,yaw:180}];
 function goToView(index){
  const target=viewpoints[index],rig=document.querySelector('#rig'),head=document.querySelector('#head');
  if(!target||!rig||!head)return;
@@ -7,9 +7,6 @@ function goToView(index){
  rig.object3D.position.x+=target.x-world.x;rig.object3D.position.z+=target.z-world.z;
  if(!rig.sceneEl.is('vr-mode')){rig.object3D.rotation.y=THREE.MathUtils.degToRad(target.yaw);head.components['look-controls'].yawObject.rotation.y=0;head.components['look-controls'].pitchObject.rotation.x=0;}
 }
-AFRAME.registerComponent('teleport-to',{schema:{index:{type:'int'}},init(){
- this.onClick=()=>goToView(this.data.index);this.el.addEventListener('click',this.onClick);
-},remove(){this.el.removeEventListener('click',this.onClick);}});
 /* Right thumbstick, 30 degrees per push. Values: x>0 right, x<0 left. */
 AFRAME.registerComponent('snap-turn',{init(){
  this.ready=true;
@@ -23,44 +20,188 @@ AFRAME.registerComponent('snap-turn',{init(){
  };
  this.el.addEventListener('thumbstickmoved',this.onThumbstick);
 },remove(){this.el.removeEventListener('thumbstickmoved',this.onThumbstick);}});
+/* The solid front wall and the decorative door from pokoj.glb are replaced by
+   dist/models/za-drzwiami.glb (wall with a 0.82 x 2.05 m opening) and
+   dist/models/drzwi.glb. Hiding meshes at runtime is a workaround for not having the
+   doorway cut in Pokoj_VR.blend; do it in Blender when the project moves back there. */
+AFRAME.registerComponent('legacy-front-wall',{
+ schema:{names:{default:'Ściana przednia,Drzwi dekoracyjne,Klamka'}},
+ init(){
+  this.hidden=[];
+  this.onLoaded=()=>this.hide();
+  this.el.addEventListener('model-loaded',this.onLoaded);
+  if(this.el.getObject3D('mesh'))this.hide();
+ },
+ hide(){
+  const root=this.el.getObject3D('mesh');
+  if(!root)return;
+  const lista=[];
+  this.data.names.split(',').map(nazwa=>nazwa.trim()).filter(Boolean).forEach(nazwa=>{
+   lista.push(nazwa,nazwa.replace(/\s+/g,'_'));   // GLTFLoader zamienia spacje w nazwach na podkreślenia
+  });
+  root.traverse(node=>{
+   if(node.name&&lista.includes(node.name)&&node.visible!==false){node.visible=false;this.hidden.push(node.name);}
+  });
+  this.el.emit('legacy-hidden',{names:this.hidden});
+ },
+ remove(){this.el.removeEventListener('model-loaded',this.onLoaded);}
+});
+/* Door: trigger on the door opens and closes it. The hinge is the origin of the entity,
+   so the leaf swings around position="-2.16 0 2.08" set in index.html. */
+AFRAME.registerComponent('swing-door',{
+ schema:{openAngle:{default:-90},duration:{default:1.2},blockingAngle:{default:60}},
+ init(){
+  this.current=0;this.target=0;
+  this.onClick=()=>{this.target=this.target===0?this.data.openAngle:0;this.el.emit('door-target',{angle:this.target});};
+  this.el.addEventListener('click',this.onClick);
+ },
+ tick(time,delta){
+  if(this.current===this.target)return;
+  const dt=Math.min(delta/1000,.05);
+  const step=Math.abs(this.data.openAngle)/this.data.duration*dt;
+  const left=this.target-this.current;
+  this.current=Math.abs(left)<=step?this.target:this.current+(left>0?step:-step);
+  this.el.object3D.rotation.y=THREE.MathUtils.degToRad(this.current);
+ },
+ open(){return Math.abs(this.current)>this.data.blockingAngle;},
+ angle(){return this.current;},
+ remove(){this.el.removeEventListener('click',this.onClick);}
+});
+/* Grab: grip picks up an object of class .grabbable, grip again puts it on the floor.
+   The object stays in the scene and follows the hand — moving an entity with gltf-model
+   to another parent makes A-Frame drop its model. No physics: it is set down upright. */
+AFRAME.registerComponent('grab',{
+ schema:{holdOffset:{type:'vec3',default:{x:0,y:-0.15,z:-0.2}}},
+ init(){
+  this.held=null;
+  this.hand=new THREE.Vector3();this.quat=new THREE.Quaternion();this.offset=new THREE.Vector3();
+  this.onGripDown=()=>this.pick();
+  this.onGripUp=()=>this.drop();
+  this.el.addEventListener('gripdown',this.onGripDown);
+  this.el.addEventListener('gripup',this.onGripUp);
+ },
+ target(){
+  const raycaster=this.el.components.raycaster;
+  const hits=raycaster&&raycaster.intersectedEls?raycaster.intersectedEls:[];
+  for(let i=0;i<hits.length;i++){if(hits[i].classList.contains('grabbable'))return hits[i];}
+  return null;
+ },
+ follow(){                                      // prowadź przedmiot za dłonią, trzymając go prosto
+  const el=this.held;
+  if(!el)return;
+  this.el.object3D.getWorldPosition(this.hand);
+  this.el.object3D.getWorldQuaternion(this.quat);
+  this.offset.set(this.data.holdOffset.x,this.data.holdOffset.y,this.data.holdOffset.z).applyQuaternion(this.quat);
+  el.object3D.position.copy(this.hand).add(this.offset);
+  el.object3D.rotation.set(0,0,0);
+  el.object3D.updateMatrix();
+ },
+ tick(){if(this.held)this.follow();},
+ moveTo(el,x,y,z){                              // zapis wprost do obiektu 3D i do atrybutu
+  el.object3D.position.set(x,y,z);
+  el.object3D.rotation.set(0,0,0);
+  el.object3D.updateMatrix();
+  el.setAttribute('position',x.toFixed(3)+' '+y.toFixed(3)+' '+z.toFixed(3));
+  el.setAttribute('rotation','0 0 0');
+ },
+ pick(){
+  if(this.held)return;
+  const el=this.target();
+  if(!el)return;
+  this.held=el;el.heldBy=this.el;
+  this.follow();
+  this.el.emit('grabbed',{object:el.id});
+ },
+ drop(){
+  if(!this.held)return;
+  const el=this.held,position=new THREE.Vector3();
+  el.object3D.getWorldPosition(position);
+  const spot=this.spot(position);
+  this.held=null;delete el.heldBy;
+  this.moveTo(el,spot.x,0,spot.z);
+  this.el.emit('released',{object:el.id,x:spot.x,z:spot.z});
+ },
+ spot(point){                                   // nie odkładaj przedmiotu w ścianie ani w meblu
+  const body=document.querySelector('[player-body]');
+  const collision=body&&body.components['player-body'];
+  if(!collision||!collision.collides(point.x,point.z))return point;
+  const head=document.querySelector('#head'),headWorld=new THREE.Vector3();
+  if(head)head.object3D.getWorldPosition(headWorld);
+  return {x:headWorld.x,z:headWorld.z};
+ },
+ remove(){
+  this.el.removeEventListener('gripdown',this.onGripDown);
+  this.el.removeEventListener('gripup',this.onGripUp);
+ }
+});
 /* Left thumbstick: smooth movement in the direction the head looks, with collision
    against furniture and walls. A-Frame reports y>0 as stick-down, so forward is -y.
    Keyboard (W/A/S/D, arrows) drives the same movement for the desktop preview. */
 AFRAME.registerComponent('player-body',{
- schema:{speed:{default:1.4},radius:{default:.26},bodyHeight:{default:1.7},footClearance:{default:.15},minObstacleSize:{default:.06},deadZone:{default:.15},invertForward:{default:false}},
+ schema:{speed:{default:1.4},radius:{default:.26},bodyHeight:{default:1.7},footClearance:{default:.15},minObstacleSize:{default:.06},deadZone:{default:.15},invertForward:{default:false},sources:{default:'#model, #new-room'},dynamic:{default:'#door, #crate'}},
  init(){
-  this.obstacles=[];this.stick={x:0,y:0};this.keys={};
+  this.obstacles=[];this.dyn=[];this.stick={x:0,y:0};this.keys={};
   this.forward=new THREE.Vector3();this.right=new THREE.Vector3();this.headWorld=new THREE.Vector3();
   this.rig=document.querySelector('#rig');this.head=document.querySelector('#head');
   this.onThumbstick=event=>{this.stick.x=event.detail.x||0;this.stick.y=event.detail.y||0;};
   this.onKeyDown=event=>{this.keys[event.code]=true;};
   this.onKeyUp=event=>{this.keys[event.code]=false;};
-  this.onModelLoaded=()=>this.buildObstacles();
+  this.onLoaded=()=>this.buildObstacles();
+  this.sources=[...document.querySelectorAll(this.data.sources)];
+  this.dynamic=[...document.querySelectorAll(this.data.dynamic)];
   this.el.addEventListener('thumbstickmoved',this.onThumbstick);
   window.addEventListener('keydown',this.onKeyDown);window.addEventListener('keyup',this.onKeyUp);
-  const model=document.querySelector('#model');
-  if(model){model.addEventListener('model-loaded',this.onModelLoaded);if(model.getObject3D('mesh'))this.buildObstacles();}
+  this.sources.forEach(el=>el.addEventListener('model-loaded',this.onLoaded));
+  this.buildObstacles();
+ },
+ visible(node){                                  // ukryte meshe (stara ściana) nie tworzą kolizji
+  let current=node;
+  while(current){if(current.visible===false)return false;current=current.parent;}
+  return true;
  },
  buildObstacles(){
-  const model=document.querySelector('#model'),root=model&&model.getObject3D('mesh');
-  if(!root)return;
-  root.updateMatrixWorld(true);
   const box=new THREE.Box3(),list=[];
-  root.traverse(node=>{
-   if(!node.isMesh||!node.geometry)return;
-   box.setFromObject(node,true);
-   if(!isFinite(box.min.x)||!isFinite(box.max.x))return;
-   if(box.max.y<=this.data.footClearance||box.min.y>=this.data.bodyHeight)return;   // podłoga, dywan, listwy, sufit
-   if(box.max.x-box.min.x<this.data.minObstacleSize&&box.max.z-box.min.z<this.data.minObstacleSize)return;   // nogi, drobiazgi
-   list.push({minX:box.min.x,maxX:box.max.x,minZ:box.min.z,maxZ:box.max.z});
+  const band=this.data;
+  this.sources.forEach(entity=>{
+   const root=entity.getObject3D('mesh');
+   if(!root)return;
+   root.updateMatrixWorld(true);
+   root.traverse(node=>{
+    if(!node.isMesh||!node.geometry||!this.visible(node))return;
+    box.setFromObject(node,true);
+    if(!isFinite(box.min.x)||!isFinite(box.max.x))return;
+    if(box.max.y<=band.footClearance||box.min.y>=band.bodyHeight)return;             // podłoga, dywan, listwy, sufit
+    if(box.max.x-box.min.x<band.minObstacleSize&&box.max.z-box.min.z<band.minObstacleSize)return;   // nogi, drobiazgi
+    list.push({minX:box.min.x,maxX:box.max.x,minZ:box.min.z,maxZ:box.max.z});
+   });
   });
   this.obstacles=list;
   if(this.el.sceneEl)this.el.sceneEl.emit('body-ready',{obstacles:list.length});
+ },
+ dynamicObstacles(){                             // drzwi i skrzynka zmieniają położenie
+  const list=[],box=new THREE.Box3();
+  this.dynamic.forEach(entity=>{
+   if(!entity.object3D||!entity.getObject3D('mesh'))return;
+   if(entity.heldBy)return;                                                          // trzymane w dłoni
+   const door=entity.components['swing-door'];
+   if(door&&door.open())return;                                                      // otwarte drzwi przepuszczają
+   box.setFromObject(entity.object3D,true);
+   if(!isFinite(box.min.x)||!isFinite(box.max.x))return;
+   if(box.max.y<=this.data.footClearance||box.min.y>=this.data.bodyHeight)return;
+   list.push({minX:box.min.x,maxX:box.max.x,minZ:box.min.z,maxZ:box.max.z});
+  });
+  return list;
  },
  collides(x,z){
   const r=this.data.radius;
   for(let i=0;i<this.obstacles.length;i++){
    const o=this.obstacles[i];
+   const cx=x<o.minX?o.minX:(x>o.maxX?o.maxX:x),cz=z<o.minZ?o.minZ:(z>o.maxZ?o.maxZ:z);
+   const dx=x-cx,dz=z-cz;
+   if(dx*dx+dz*dz<r*r)return true;
+  }
+  for(let i=0;i<this.dyn.length;i++){
+   const o=this.dyn[i];
    const cx=x<o.minX?o.minX:(x>o.maxX?o.maxX:x),cz=z<o.minZ?o.minZ:(z>o.maxZ?o.maxZ:z);
    const dx=x-cx,dz=z-cz;
    if(dx*dx+dz*dz<r*r)return true;
@@ -78,6 +219,7 @@ AFRAME.registerComponent('player-body',{
   return {sideways,forward};
  },
  tick(time,delta){
+  this.dyn=this.dynamicObstacles();
   if(!this.obstacles.length||!this.rig||!this.head)return;
   const input=this.input();
   if(!input.sideways&&!input.forward)return;
@@ -104,8 +246,7 @@ AFRAME.registerComponent('player-body',{
  remove(){
   this.el.removeEventListener('thumbstickmoved',this.onThumbstick);
   window.removeEventListener('keydown',this.onKeyDown);window.removeEventListener('keyup',this.onKeyUp);
-  const model=document.querySelector('#model');
-  if(model)model.removeEventListener('model-loaded',this.onModelLoaded);
+  this.sources.forEach(el=>el.removeEventListener('model-loaded',this.onLoaded));
  }
 });
 window.addEventListener('DOMContentLoaded',()=>{
@@ -118,7 +259,7 @@ window.addEventListener('DOMContentLoaded',()=>{
  document.querySelectorAll('[data-view]').forEach(el=>el.addEventListener('click',()=>goToView(Number(el.dataset.view))));
  if(document.modelContext?.registerTool){
   const lifecycle=new AbortController();
-  try{Promise.resolve(document.modelContext.registerTool({name:'move_to_room_view',description:'Przenieś widok do wejścia (0), okna (1) lub kanapy (2).',inputSchema:{type:'object',properties:{index:{type:'integer',enum:[0,1,2]}},required:['index'],additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:false},execute(input){if(!Number.isInteger(input.index)||input.index<0||input.index>2)throw new Error('Nieznany punkt widokowy');goToView(input.index);return {index:input.index};}},{signal:lifecycle.signal})).catch(()=>{});}catch(e){}
+  try{Promise.resolve(document.modelContext.registerTool({name:'move_to_room_view',description:'Przenieś widok do wejścia (0), okna (1), kanapy (2) lub pokoju za drzwiami (3).',inputSchema:{type:'object',properties:{index:{type:'integer',enum:[0,1,2,3]}},required:['index'],additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:false},execute(input){if(!Number.isInteger(input.index)||input.index<0||input.index>3)throw new Error('Nieznany punkt widokowy');goToView(input.index);return {index:input.index};}},{signal:lifecycle.signal})).catch(()=>{});}catch(e){}
   window.addEventListener('pagehide',()=>lifecycle.abort(),{once:true});
  }
 });
