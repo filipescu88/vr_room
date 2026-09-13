@@ -1,0 +1,9 @@
+*.blend1
+komnata-site.zip
+.local-vr/
+.openai/
+SIEC-DOMOWA.md
+*.pem
+*.pfx
+.env
+.env.*
