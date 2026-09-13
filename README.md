@@ -4,7 +4,7 @@ Technologia: Blender 5.1 → glTF/GLB → A-Frame 1.8.0 / WebXR. Pokój 5 × 4 �
 
 ## Uruchomienie na Quest 3
 
-Po pomyślnej publikacji przez GitHub Pages pokój jest dostępny pod **https://filipescu88.github.io/vr_room/**. Otwórz adres w Meta Quest Browser. Wybierz „Wejdź do VR” i zezwól na sesję VR. Lewy drążek porusza w kierunku patrzenia, prawy obraca widok o 30°. Kolizje nie pozwalają przejść przez meble ani ściany. Możesz też wskazać kontrolerem jasny krąg i nacisnąć spust, aby teleportować się. Fizyczne przemieszczanie jest ograniczone Twoją rzeczywistą granicą przestrzeni Questa.
+Po pomyślnej publikacji przez GitHub Pages pokój jest dostępny pod **https://filipescu88.github.io/vr_room/**. Otwórz adres w Meta Quest Browser. Wybierz „Wejdź do VR” i zezwól na sesję VR. Lewy drążek porusza w kierunku patrzenia, prawy obraca widok o 30°. Wskaż drzwi laserem i naciśnij spust, aby je otworzyć — za nimi jest drugi, pusty pokój 4 × 4 m. Chwyt (grip) podnosi skrzynkę i trzyma ją w dłoni, ponowne naciśnięcie odkłada ją na podłogę. Kolizje nie pozwalają przejść przez meble ani ściany. Teleportacji nie ma: poruszasz się drążkiem. Fizyczne przemieszczanie jest ograniczone Twoją rzeczywistą granicą przestrzeni Questa.
 
 Strona jest publiczna i działa przez internet bez uruchamiania lokalnego komputera. W przeglądarce komputera działa podgląd 3D; pełny VR wymaga zgodnych gogli i przeglądarki.
 
@@ -14,19 +14,25 @@ GitHub Pages publikuje zawartość gałęzi `gh-pages` z katalogu głównego. Ga
 
 Po edycji wyeksportuj model do `dist/pokoj.glb`, zapisz zmiany w Git (commit), a następnie uruchom `pwsh -File scripts/Publish-Pages.ps1`. Skrypt sprawdza JavaScript i czysty stan repozytorium, wysyła źródła na `main`, a podgląd na `gh-pages`. Wymaga Git, Node.js i zalogowanego GitHub CLI (`gh`). GitHub automatycznie opublikuje nową zawartość tej gałęzi. Sam push na `main` ani zmiana pliku `.blend` nie aktualizują podglądu.
 
+Z systemu bez PowerShella ten sam efekt dają trzy polecenia: `git push origin main`, `git subtree split --prefix=dist HEAD`, a potem `git push origin <wynik-splitu>:refs/heads/gh-pages`. Publikację z tego komputera wykonuje się kluczem SSH (push), a odczyt zostaje po HTTPS.
+
 ## Lokalny HTTPS w Windows
 
 Wymagane: Node.js oraz PowerShell 7. Uruchom `Uruchom-VR.cmd` i wpisz w Queście adres HTTPS pokazany w oknie. Oba urządzenia muszą być w tej samej sieci. Zaakceptuj ostrzeżenie lokalnego certyfikatu. Ctrl+C zatrzymuje serwer. Skrypt automatycznie wykrywa adres komputera; można też podać go ręcznie: `pwsh -File scripts/Start-VR.ps1 -Address ADRES_IP`.
 
 Jeśli zapora blokuje połączenie, `scripts/Allow-LAN.ps1` uruchomiony jako administrator dodaje ograniczoną regułę TCP 8443 dla lokalnej podsieci w profilu prywatnym. Sam serwer nie wymaga administratora. Po zmianie adresu IP istniejąca reguła może wymagać aktualizacji. Certyfikat i klucz powstają lokalnie w `.local-vr/` i nie trafiają do repozytorium. Konfiguracja lokalnego HTTPS nie jest potrzebna do korzystania z GitHub Pages.
 
-Na komputerze poruszaj się klawiszami W/A/S/D lub strzałkami, przeciągaj widok myszą i korzystaj z punktów widokowych. Ruch działa w kierunku patrzenia i zatrzymuje się na meblach oraz ścianach (kolizje liczone z brył otaczających modelu, promień ciała 0,26 m). Dostępne są też trzy miejsca teleportacji. Meble są statyczne; drzwi są dekoracyjne. To samodzielna scena WebXR, nie środowisko domowe systemu Meta Horizon.
+Na komputerze poruszaj się klawiszami W/A/S/D lub strzałkami, przeciągaj widok myszą i korzystaj z czterech punktów widokowych („Za drzwiami" pokazuje nowy pokój). Ruch działa w kierunku patrzenia i zatrzymuje się na meblach oraz ścianach (kolizje liczone z brył otaczających modelu, promień ciała 0,26 m). Meble są statyczne; drzwi otwierają się na komendę, a skrzynka jest przenośna. To samodzielna scena WebXR, nie środowisko domowe systemu Meta Horizon.
 
 ## Edycja
 
 Otwórz `Pokoj_VR.blend` w Blenderze. Obiekty mają polskie nazwy i oddzielne materiały. Eksportuj do `dist/pokoj.glb` przez File → Export → glTF 2.0, format GLB, bez kamer i świateł. Po zmianach ustawienia punktów teleportacji są w `dist/room.js` oraz znacznikach pierścieni w `dist/index.html`. Blender używa Z w górę; eksport GLB konwertuje do Y w górę.
 
 `scripts/build_room.py` odtwarza model i podgląd; ponowne uruchomienie nadpisuje pliki wygenerowane. `podglad.png` to render Blendera — światło w przeglądarce jest uproszczone. `model-info.json` zawiera statystyki modelu.
+
+Pokój za drzwiami, drzwi i skrzynka powstają bez Blendera: `python3 scripts/build_second_room.py` zapisuje `dist/models/za-drzwiami.glb`, `dist/models/drzwi.glb` i `dist/models/skrzynka.glb`. Skrypt używa wyłącznie biblioteki standardowej, a kolory materiałów czyta z `dist/pokoj.glb`, żeby nowe elementy nie odróżniały się od reszty. Ściany są w nim osobnymi obiektami, bo kolizje liczą bryłę otaczającą każdy mesh — scalona geometria rozciągnięta nad przejściem zamurowałaby otwór i wnętrze pokoju. Oś obrotu drzwi to początek układu encji `#door` w `dist/index.html`, czyli zawias; skrzynka ma początek w środku podstawy, więc `y = 0` stawia ją na podłodze.
+
+Lita ściana przednia i dekoracyjne drzwi z `pokoj.glb` są ukrywane w czasie działania przez komponent `legacy-front-wall` (`dist/room.js`), a ich rolę przejmują nowe modele. To obejście braku Blendera: docelowo otwór drzwiowy powinien być wycięty w `Pokoj_VR.blend` i wyeksportowany do `pokoj.glb`, a ukrywanie usunięte. Komponent `player-body` buduje kolizje z modeli podanych w atrybucie `sources`, a bryły drzwi i skrzynki dolicza co klatkę (atrybut `dynamic`), bo te obiekty się przemieszczają.
 
 Podgląd lokalny: `python -m http.server 8080 --directory dist`, następnie http://localhost:8080 na komputerze. Do VR na osobnym Queście używaj opublikowanego HTTPS; zwykły adres HTTP komputera w sieci lokalnej nie wystarcza.
 

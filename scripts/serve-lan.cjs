@@ -9,7 +9,10 @@ const assets = new Map([
  ['/style.css', ['style.css', 'text/css; charset=utf-8']],
  ['/room.js', ['room.js', 'text/javascript; charset=utf-8']],
  ['/aframe.min.js', ['aframe.min.js', 'text/javascript; charset=utf-8']],
- ['/pokoj.glb', ['pokoj.glb', 'model/gltf-binary']]
+ ['/pokoj.glb', ['pokoj.glb', 'model/gltf-binary']],
+ ['/models/za-drzwiami.glb', ['models/za-drzwiami.glb', 'model/gltf-binary']],
+ ['/models/drzwi.glb', ['models/drzwi.glb', 'model/gltf-binary']],
+ ['/models/skrzynka.glb', ['models/skrzynka.glb', 'model/gltf-binary']]
 ]);
 const server = https.createServer({
  key: fs.readFileSync(path.join(root,'.local-vr/key.pem')),
