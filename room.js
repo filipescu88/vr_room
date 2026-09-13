@@ -165,7 +165,7 @@ AFRAME.registerComponent('grab',{
    Eye height is calibrated once per VR session so the room floor matches the user's
    floor; holding the stick clicked and pushing it up or down adjusts it and is saved. */
 AFRAME.registerComponent('player-body',{
- schema:{speed:{default:1.4},radius:{default:.26},bodyHeight:{default:1.7},footClearance:{default:.15},minObstacleSize:{default:.06},minSupport:{default:.25},deadZone:{default:.15},invertForward:{default:false},eyeHeight:{default:1.8},sources:{default:'#model, #new-room'},dynamic:{default:'#door, #crate'}},
+ schema:{speed:{default:1.4},radius:{default:.26},bodyHeight:{default:1.7},footClearance:{default:.15},minObstacleSize:{default:.06},minSupport:{default:.25},deadZone:{default:.15},invertForward:{default:false},eyeHeight:{default:1.8},sources:{default:'#model, #new-room'},dynamic:{default:'#door, .grabbable'}},
  init(){
   this.obstacles=[];this.dyn=[];this.stick={x:0,y:0};this.keys={};
   this.forward=new THREE.Vector3();this.right=new THREE.Vector3();this.headWorld=new THREE.Vector3();
